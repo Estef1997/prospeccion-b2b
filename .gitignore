@@ -1,0 +1,76 @@
+# ─── Secretos — NUNCA suben, ni a un repo privado ───────
+#
+# Un repo privado sigue siendo un repo: se puede volver público por
+# error, se comparte con colaboradores, y lo que se sube una vez queda
+# en el historial de git aunque después se borre el archivo.
+#
+# credenciales.json da acceso de ESCRITURA a las hojas de Google.
+# Es el archivo más sensible del proyecto.
+#
+# En Streamlit Cloud estos no van en el repo: van en Settings → Secrets.
+# Ver DESPLIEGUE.md.
+.env
+credenciales.json
+.streamlit/secrets.toml
+*.key
+*.pem
+
+# ─── Datos de negocios — SÍ suben, al repo PRIVADO ──────
+#
+# Cambio del 08/10/2026. La decisión está escrita en app.py.
+#
+# Estos JSON tienen 3.485 negocios con teléfono y dirección. Para que el
+# app corra hospedado tienen que estar en el repo: Streamlit Cloud
+# despliega desde GitHub y no hay otra forma de que los vea.
+#
+# Lo que eso implica, dicho de frente:
+#   - son datos de terceros, publicados en Google Maps, no secretos
+#   - la lista COMPILADA sí es un activo del negocio; por eso el app
+#     tiene clave y por eso el repo tiene que ser privado
+#
+# Si este repo alguna vez se vuelve público, estas tres líneas se
+# descomentan ANTES de cambiar la visibilidad.
+#
+prospectos_crudo.json
+prospectos_calificados.json
+carnicerias_calificadas.json
+
+# Copias y temporales sí quedan afuera. El original de las respuestas
+# vive en la hoja de Google.
+*.json.bak
+*.json.tmp
+respuestas_respaldo.json
+
+# ─── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ─── Editor / sistema ───────────────────────────────────
+.vscode/
+.DS_Store
+Thumbs.db
+# --- bitacora.jsonl: SI sube, a proposito ---
+#
+# No esta en esta lista y no debe estarlo. Es el historial de que paso
+# en cada corrida, y sirve para comparar el mes pasado con este;
+# ignorarlo lo volveria un archivo que vive en una sola maquina.
+#
+# Se puede subir porque no tiene datos de terceros: solo conteos y
+# etiquetas de problema que escribio este proyecto. Ni un nombre de
+# negocio, ni un telefono, ni un mensaje redactado. Eso lo cuida
+# tests/test_bitacora.py, no la buena memoria de nadie.
+
+# --- bitacora.jsonl: SI sube, a proposito ---
+#
+# No esta en esta lista y no debe estarlo. Es el historial de que paso
+# en cada corrida, y sirve para comparar el mes pasado con este;
+# ignorarlo lo volveria un archivo que vive en una sola maquina.
+#
+# Se puede subir porque no tiene datos de terceros: solo conteos y
+# etiquetas de problema que escribio este proyecto. Ni un nombre de
+# negocio, ni un telefono, ni un mensaje redactado. Eso lo cuida
+# tests/test_bitacora.py, no la buena memoria de nadie.

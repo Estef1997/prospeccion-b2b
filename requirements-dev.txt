@@ -1,0 +1,46 @@
+# Todo lo que hace falta para TRABAJAR en el proyecto, no solo para
+# correr el app.
+#
+#     pip install -r requirements-dev.txt
+#
+# Incluye requirements.txt, así que con este comando queda todo.
+#
+# Por qué está separado: Streamlit Cloud instala requirements.txt en
+# cada despliegue, y el app no usa nada de acá abajo. Ver el comentario
+# de requirements.txt.
+
+-r requirements.txt
+
+# Búsqueda en Google Places (prospecto.py, buscar_negocios.py)
+requests>=2.31
+
+# Llaves desde .env (grafo.py, prospecto.py)
+python-dotenv>=1.0
+
+# Grafo de agentes: clasificador -> redactor -> validador
+langgraph>=0.2
+langchain-anthropic>=0.3
+
+# Salidas tipadas del modelo (Veredicto, Clasificacion)
+pydantic>=2.0
+
+# Capa 2 del validador: decisiones tipadas con probabilidad calibrada
+typesafe-sdk>=0.7
+
+# Pruebas. En Windows correr con "python -m pytest": el ejecutable
+# queda en una carpeta que no está en el PATH.
+pytest>=8.0
+
+# ─── Tracing: OPCIONAL ──────────────────────────────────────
+#
+# Sin estos dos el pipeline corre igual: trazas.py mira el .env y, si
+# no hay llaves de Langfuse, no intenta nada.
+#
+# langchain (el paquete paraguas) no lo usa el grafo: lo pide el
+# CallbackHandler de Langfuse. Instalarlo mueve langchain-core de
+# versión, así que después de instalar hay que correr las pruebas.
+#
+# Si se instalan, la máscara va puesta y no hay forma de pedir lo
+# contrario. Por qué eso no es exagerado: mascara.py.
+langfuse>=5.0
+langchain>=1.0

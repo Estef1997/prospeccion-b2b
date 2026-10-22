@@ -1,0 +1,23 @@
+# Prospección Embutidos Artesanales — lo que necesita EL APP. Nada más.
+#
+# Streamlit Cloud instala este archivo en cada despliegue. Antes acá
+# estaba el proyecto completo (langgraph, langchain-anthropic, typesafe,
+# requests) y ninguna de las tres pantallas los importa: el app lee JSON
+# ya calificado y no llama al modelo.
+#
+# Instalarlos allá sería pagar tiempo de arranque, en cada despliegue y
+# en cada reinicio, por librerías que nadie usa.
+#
+# Para trabajar en el proyecto completo — buscar en Places, correr el
+# grafo, volcar a Sheets, pruebas:
+#
+#     pip install -r requirements-dev.txt
+
+# Las tres pantallas.
+# wrap_lines en st.code necesita 1.40 o más nuevo.
+streamlit>=1.40
+
+# Dónde se guardan las respuestas cuando el app corre hospedado.
+# El disco de Streamlit Cloud se borra al reiniciar; la hoja no.
+gspread>=6.0
+google-auth>=2.30
