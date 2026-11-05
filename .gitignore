@@ -63,14 +63,3 @@ Thumbs.db
 # etiquetas de problema que escribio este proyecto. Ni un nombre de
 # negocio, ni un telefono, ni un mensaje redactado. Eso lo cuida
 # tests/test_bitacora.py, no la buena memoria de nadie.
-
-# --- bitacora.jsonl: SI sube, a proposito ---
-#
-# No esta en esta lista y no debe estarlo. Es el historial de que paso
-# en cada corrida, y sirve para comparar el mes pasado con este;
-# ignorarlo lo volveria un archivo que vive en una sola maquina.
-#
-# Se puede subir porque no tiene datos de terceros: solo conteos y
-# etiquetas de problema que escribio este proyecto. Ni un nombre de
-# negocio, ni un telefono, ni un mensaje redactado. Eso lo cuida
-# tests/test_bitacora.py, no la buena memoria de nadie.

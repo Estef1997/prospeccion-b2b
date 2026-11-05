@@ -3,7 +3,7 @@
 # POR QUE EXISTE (03/11/2026)
 #
 # Un revisor externo leyo el repo y dijo que no pudo correr las pruebas.
-# Fue generoso: reviso igual. El proximo puede no serlo, y "389 pruebas"
+# Fue generoso: reviso igual. El proximo puede no serlo, y "394 pruebas"
 # en un README es una afirmacion que nadie puede verificar sin instalar
 # el proyecto a mano.
 #
@@ -11,16 +11,24 @@
 # pruebas rojas es peor que uno sin pruebas" -- como un paso manual.
 # Esto la vuelve automatica en vez de un recordatorio.
 #
-# LAS DOS PRUEBAS QUE SE SALTAN
+# LOS TRES SALTOS QUE SE ESPERAN
 #
-# La copia publica no trae prospectos_crudo.json, asi que las dos
-# pruebas que recorren el corpus completo buscando que ningun nombre ni
-# telefono real sobreviva a la mascara no pueden correr.
+# Dos no traen los datos: la copia publica no incluye
+# prospectos_crudo.json, asi que las que recorren el corpus completo
+# buscando que ningun nombre ni telefono real sobreviva a la mascara no
+# pueden correr.
+#
+# El tercero es el modulo tests/test_publicar.py entero, que necesita
+# publicar.py -- y publicar.py NUNCA viaja a esta copia, porque su
+# tabla de reemplazos es el mapa inverso de la anonimizacion. Son 5
+# pruebas que cuentan como UN salto, porque el importorskip corta el
+# modulo completo. Que se salte ES el resultado que se busca: si
+# corriera aca, seria porque el archivo se colo.
 #
 # Se saltan con su motivo escrito, y `-rs` lo imprime en el log. Eso es
 # a proposito: una prueba que se salta en silencio es una prueba que
 # nadie sabe que falta. Lo esperado en esta copia es
-# "387 passed, 2 skipped".
+# "387 passed, 3 skipped".
 
 name: pruebas
 

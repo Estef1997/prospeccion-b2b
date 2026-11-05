@@ -100,7 +100,7 @@ ya resuelto al modelo; el modelo nunca lo deduce.
 ## Cómo se corre
 
 ```bash
-python -m pytest -q                # 0. 389 passed, o algo se rompió
+python -m pytest -q                # 0. 394 passed, o algo se rompió
 python validar.py prueba           # 0b. Calibra: 8 de 8 o no seguir
 
 python prospecto.py costo Cartago  # 1a. Cuánto costaría, sin gastar
@@ -1150,9 +1150,27 @@ no el validador.
 
 ## Skills
 
-Procedimientos que Claude Code sigue cuando reconoce la tarea. Viven en
-`.claude/skills/<nombre>/SKILL.md`. No son código: son el orden, los
-chequeos y las paradas que el código no sabe.
+Procedimientos que Claude Code sigue cuando reconoce la tarea. No son
+código: son el orden, los chequeos y las paradas que el código no sabe.
+
+> ### No están en este repo, y eso es a propósito (03/11/2026)
+>
+> **No existe una carpeta `.claude/skills/` acá. No falta nada.** Las
+> dos skills viven en la cuenta de Claude de quien desarrolla, no en el
+> repositorio, así que no se clonan con el proyecto y no aparecen en
+> `git log`.
+>
+> Queda escrito porque `publicar.py` tiene dos patrones
+> —`.claude/skills/*/SKILL.md` y `skills/*/SKILL.md`— que hoy no
+> coinciden con nada, y `verificar_estructura.py` avisa
+> `.claude/skills/ (0 skills)`. Las dos cosas son correctas y las dos
+> parecen un error: alguien que las vea va a buscar archivos que no
+> existen y va a creer que se perdieron.
+>
+> Si alguna vez se copian al repo, hay que decidir antes qué hacer con
+> los nombres de clientes que mencionan —`"super molina"` está en la
+> tabla de abajo— porque esos patrones son justamente lo que
+> `publicar.py` reemplaza.
 
 | skill | cuándo se activa | lo que protege |
 |---|---|---|

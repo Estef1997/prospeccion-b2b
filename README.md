@@ -57,7 +57,7 @@ escrito; una persona lo lee y decide.
 ## Cómo se corre
 
 ```bash
-python -m pytest -q                 # 389 passed, o algo se rompió
+python -m pytest -q                 # 394 passed, o algo se rompió
 python validar.py prueba            # calibra el validador: 19 de 19
 
 python prospecto.py costo Cartago   # cuánto costaría, sin gastar
@@ -101,10 +101,14 @@ Eso tiene tres consecuencias visibles:
 - `prospectos_crudo.json` se nombra en el diagrama y en los comandos,
   pero hay que generarlo con `prospecto.py buscar`, que cuesta cuota de
   Google.
-- `pytest` reporta **387 pasadas y 2 saltadas** en vez de 389. Las dos
-  que se saltan son las que recorren el corpus completo buscando que
-  ningún nombre ni teléfono real sobreviva a la máscara. Se saltan con
-  el motivo escrito, no en silencio.
+- `pytest` reporta **387 pasadas y 3 saltadas**. Dos son las que
+  recorren el corpus completo buscando que ningún nombre ni teléfono
+  real sobreviva a la máscara, y necesitan los datos. El tercero es
+  `tests/test_publicar.py` entero: comprueba que el script que construye
+  esta copia no se copie a sí mismo —su tabla de reemplazos sería el
+  mapa inverso de la anonimización— y por lo tanto no puede correr acá.
+  Que se salte es el resultado correcto. Los tres se saltan con el
+  motivo escrito, no en silencio.
 - El nombre de la fábrica y los de sus clientes están reemplazados por
   genéricos.
 
@@ -227,7 +231,7 @@ que alguien recorta en seis meses.
 ## Estado
 
 ```
-389 pruebas en 16 archivos
+394 pruebas en 17 archivos
 19 casos de calibracion: 13 deben fallar, 6 deben pasar
 app desplegado, con clave, guardando en Google Sheets
 observabilidad conectada, con la identidad seudonimizada
