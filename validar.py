@@ -48,7 +48,9 @@ from dotenv import load_dotenv
 
 from bitacora import anotar_calibracion
 from casos_prueba import CASOS_PRUEBA, esperado_valido
-from reglas import MAX_PALABRAS, contexto_para, prohibidas_para, tiene_reparto_propio
+from reglas import (MAX_PALABRAS, VALIDACION_OK, VALIDACION_REVISAR,
+                    contexto_para, prohibidas_para,
+                    tiene_reparto_propio)
 
 load_dotenv()
 
@@ -275,13 +277,15 @@ if __name__ == "__main__":
         r = validar(cliente, d["mensaje"], d)
         imprimir(d.get("nombre", ""), r)
 
-        d["validacion"] = "ok" if r["valido"] else "revisar"
+        d["validacion"] = (VALIDACION_OK if r["valido"]
+                           else VALIDACION_REVISAR)
         d["validacion_detalle"] = "; ".join(
             r["fallos_regla"] + r["banderas"]
             + [f"{e}: {c}" for e, c in r["citas"]]
         )
 
-    malos = [d for d in con_mensaje if d["validacion"] == "revisar"]
+    malos = [d for d in con_mensaje
+             if d["validacion"] == VALIDACION_REVISAR]
     print(f"\n{len(malos)} de {len(con_mensaje)} necesitan revision")
     print(f"Claude corrio sobre {len(malos)}, no sobre {len(con_mensaje)}")
 

@@ -28,7 +28,7 @@ import streamlit as st
 import inicio
 import registro
 import zonas
-from reglas import es_celular
+from reglas import es_celular, se_puede_mandar
 
 # NO se llama a inicio.preparar() aca. Lo hace app.py una sola vez,
 # antes del menu (ver su docstring).
@@ -46,13 +46,10 @@ def cargar():
     with open(ORIGEN, encoding="utf-8") as f:
         datos = json.load(f)
 
-    # Tres condiciones: tiene mensaje, paso el validador, y se le puede
-    # escribir. Un mensaje que no paso no se manda -- para eso se hizo
-    # el validador.
-    listos = [d for d in datos
-              if d.get("mensaje")
-              and d.get("validacion") != "revisar"
-              and es_celular(d.get("telefono"))]
+    # La decision vive en reglas.se_puede_mandar(), no aca: falla
+    # cerrado y se puede probar sin levantar Streamlit. Ver su docstring
+    # para el origen.
+    listos = [d for d in datos if se_puede_mandar(d)]
     listos.sort(key=lambda x: x.get("puntaje") or 0, reverse=True)
     return listos
 
@@ -107,20 +104,36 @@ def tarjeta(i, n, anotado):
             key=f"n_{pid}",
         )
 
-        if st.button("Guardar", key=f"g_{pid}", use_container_width=True):
+        # Un boton que siempre va a fallar es peor que un boton que no
+        # esta: la persona anota, toca Guardar, ve un error y no sabe si
+        # quedo a medias.
+        if not registro.se_puede_guardar():
+            st.caption("No se puede guardar ahora: la hoja de Google no "
+                       "responde. Lo que anotés se perdería.")
+        elif st.button("Guardar", key=f"g_{pid}",
+                       use_container_width=True):
             enviado = anotado.get("enviado", "")
             if nuevo_estado and not enviado:
                 enviado = registro.fecha_de_hoy()
 
-            st.session_state.registros = registro.anotar(
+            nuevos = registro.anotar(
                 st.session_state.registros, pid,
                 estado=nuevo_estado, enviado=enviado,
                 mensaje=nuevo_mensaje, notas=notas,
                 # Para que la hoja se pueda leer. Ver registro.anotar().
                 nombre=n.get("nombre", ""), canton=n.get("canton", ""),
             )
-            registro.guardar(st.session_state.registros)
-            st.rerun()
+
+            # Se guarda PRIMERO y se actualiza la memoria despues. Al
+            # reves, un guardado fallido dejaria el cambio en pantalla
+            # como si hubiera entrado.
+            try:
+                registro.guardar(nuevos)
+            except registro.SoloLectura as e:
+                st.error(str(e))
+            else:
+                st.session_state.registros = nuevos
+                st.rerun()
 
 
 def main():

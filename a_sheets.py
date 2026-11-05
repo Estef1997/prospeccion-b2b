@@ -90,6 +90,67 @@ def cargar(archivos):
     return datos
 
 
+def escribir_seguro(hoja, filas, filas_previas):
+    """Escribe PRIMERO y recorta el sobrante DESPUES. Nunca al reves.
+
+    ORIGEN (03/11/2026), de una revision externa del repo publico.
+
+    Antes las dos escrituras del proyecto hacian `hoja.clear()` y
+    despues `hoja.update()`, con un comentario que decia "o entran
+    todas o no entra ninguna". El comentario era falso: son **dos
+    llamadas a la API de Google**. Si la primera entra y la segunda
+    falla -- se cayo la red, expiro el token, Google contesto 429 -- la
+    pestaña queda VACIA.
+
+    Vacia es el peor estado posible, porque:
+
+    - en la pestaña Respuestas vive el unico dato que no se regenera;
+    - aca viven las columnas manuales que se escribieron antes de que
+      el app existiera, y que solo estan en la hoja; y
+    - leer una hoja vacia no falla: devuelve vacio, y el app muestra
+      "no hay nada" sin un solo error en pantalla.
+
+    Es el mismo patron que ya se repitio cuatro veces en este proyecto:
+    el codigo corrio, no lanzo excepcion, y el dato quedo mal.
+
+    POR QUE ESTE METODO Y NO OTRO
+
+    Se evaluaron tres:
+
+    1. **Escribir y recortar** (este). El peor caso es que el recorte
+       falle y queden filas viejas colgando mas abajo. Eso es visible
+       en la hoja, se arregla volviendo a guardar, y no pierde nada.
+    2. Actualizar celda por celda segun la llave. Son N llamadas en vez
+       de dos, y una falla a la mitad deja la hoja mezclada: unas filas
+       nuevas y otras viejas, sin forma de saber cuales.
+    3. Un `batch_update` con el clear y el update en una sola peticion.
+       Es lo mas correcto en teoria, pero deja el orden destructivo
+       escrito en el codigo y depende de que gspread y Google lo traten
+       de verdad como atomico. No se puede comprobar desde aca.
+
+    Se eligio (1) porque su peor caso es recuperable y visible, y los
+    otros dos tienen peores casos silenciosos. El criterio no es cual
+    falla menos: es cual falla mejor.
+
+    POR QUE VIVE EN UN SOLO ARCHIVO
+
+    Lo usan a_sheets.py y almacen_sheets.py. Copiarlo en los dos seria
+    el bug de CONTEXTO_FABRICA otra vez, y esta vez sobre la escritura
+    del dato irrecuperable. almacen_sheets.py ya importa HOJA y
+    ALCANCES de aca, asi que la dependencia va en la direccion que ya
+    existia.
+    """
+    hoja.update(values=filas, range_name="A1")
+
+    # Solo si antes habia MAS filas que ahora. Sin esto, borrar un
+    # registro dejaria su fila vieja colgando debajo de las nuevas, y
+    # quien lea la hoja la devolveria como si siguiera viva.
+    if filas_previas > len(filas):
+        ancho = max((len(f) for f in filas), default=1)
+        ultima = chr(ord("A") + ancho - 1)
+        hoja.batch_clear([f"A{len(filas) + 1}:{ultima}{filas_previas}"])
+
+
 def preservar_manuales(hoja, datos):
     """Lo anotado por negocio, para las columnas manuales de la hoja.
 
@@ -149,8 +210,11 @@ def volcar(datos, archivos_origen):
                                  [""] * len(COLUMNAS_MANUALES)))
         filas.append(fila)
 
-    hoja.clear()
-    hoja.update(values=filas, range_name="A1")
+    # Nunca clear() antes de update(): ver escribir_seguro(). Las
+    # columnas manuales que preservar_manuales() acaba de leer solo
+    # viven en la hoja, asi que vaciarla las borraria para siempre.
+    previas = len(hoja.get_all_values())
+    escribir_seguro(hoja, filas, previas)
 
     # Formato minimo para que se pueda leer.
     hoja.freeze(rows=1)

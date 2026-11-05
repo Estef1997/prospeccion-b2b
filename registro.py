@@ -59,6 +59,80 @@ def donde():
     que anoto, no puede confiar en el app."""
     return getattr(BACKEND, "NOMBRE", ARCHIVO) if BACKEND else ARCHIVO
 
+
+def se_puede_guardar():
+    """False si el almacen esta en solo lectura.
+
+    Las pantallas lo consultan ANTES de dibujar el boton de guardar: un
+    boton que siempre falla es peor que un boton que no esta.
+    """
+    return not isinstance(BACKEND, _AlmacenSoloLectura)
+
+
+class SoloLectura(Exception):
+    """Se intento guardar con el almacen en solo lectura."""
+
+
+class _AlmacenSoloLectura:
+    """Lee lo que puede y se NIEGA a escribir.
+
+    ORIGEN (03/11/2026), de una revision externa del repo publico.
+
+    Antes, si la hoja de Google no contestaba al arrancar, el app caia
+    a `respuestas.json` en el disco del servidor. En la maquina de desarrollo
+    eso esta bien. **Hospedado es perdida de datos garantizada**, porque
+    en Streamlit Cloud el disco se borra al reiniciar.
+
+    Y peor: la decision quedaba cacheada con @st.cache_resource, asi que
+    un corte de red de diez segundos al arrancar condenaba a TODA la
+    vida del servidor a escribir en un disco que se va a borrar. Alguien
+    podia anotar veinte respuestas y perderlas sin un solo error.
+
+    Los dos hallazgos se multiplicaban entre si: el fallo era silencioso
+    (1b) y la hoja podia quedar vacia (1a).
+
+    POR QUE SOLO LECTURA Y NO SEGUIR GUARDANDO EN ALGUN LADO
+
+    Porque no hay ningun lado. Guardar donde se va a borrar no es
+    guardar: es parecer que se guardo. Este proyecto falla cerrado en
+    todo lo demas -- acceso.py sin clave no abre, mascara.py sin
+    registro borra los atributos -- y esto era la excepcion.
+
+    Se puede LEER lo que ya estaba, porque mostrar la lista sin poder
+    anotar sigue sirviendo para salir a la ruta. Lo que no se puede es
+    aceptar una anotacion que no va a sobrevivir.
+    """
+
+    NOMBRE = "solo lectura (la hoja de Google no responde)"
+
+    def __init__(self, fuente=None):
+        self.fuente = fuente
+
+    def leer(self):
+        """Lo que haya, si se puede. Vacio si no, nunca una excepcion.
+
+        Se reintenta en cada lectura a proposito: si la hoja vuelve, el
+        app se recupera solo sin reiniciar el servidor.
+        """
+        if self.fuente is None:
+            return {}
+        try:
+            return self.fuente.leer()
+        except Exception:
+            return {}
+
+    def escribir(self, registros):
+        raise SoloLectura(
+            "La hoja de Google no responde, asi que no hay donde guardar. "
+            "No se escribe en el disco del servidor porque alla se borra "
+            "al reiniciar."
+        )
+
+
+def solo_lectura(fuente=None):
+    """El almacen en modo solo lectura. Ver _AlmacenSoloLectura."""
+    return _AlmacenSoloLectura(fuente)
+
 # Vocabulario cerrado. Vive aca y a_sheets.py lo importa.
 ESTADOS = [
     "",               # todavia no se envio

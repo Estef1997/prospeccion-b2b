@@ -18,6 +18,17 @@ De 3.349 negocios candidatos, **955 tienen celular (29%)**. A los otros
 2.394 no se les puede mandar un WhatsApp: tienen fijo, no tienen
 número, o el número está mal formado.
 
+> **3.349 es un piso, no un censo.** Google Places devuelve como máximo
+> 20 resultados por consulta y este endpoint no pagina, así que toda
+> zona con más de 20 negocios de un tipo quedó recortada. Y hasta el
+> 03/11/2026 las consultas que fallaban se saltaban con un mensaje en
+> pantalla y nada más, sin dejar registro de cuál zona no se había
+> consultado. Las proporciones de abajo (el 29%, el 96%) se calculan
+> sobre lo que hay y se sostienen; el total absoluto no es una medición
+> del mercado. Desde esa fecha cada corrida anota en `bitacora.jsonl`
+> cuántas consultas fallaron y cuántas llegaron al tope, así que la
+> próxima sí va a poder decir cuánto piso es.
+
 Eso parte el sistema en dos salidas, y quien decide no es un modelo
 sino una función de cuatro líneas que mira el primer dígito del número
 según el plan de numeración de SUTEL:
@@ -46,7 +57,7 @@ escrito; una persona lo lee y decide.
 ## Cómo se corre
 
 ```bash
-python -m pytest -q                 # 320 passed, o algo se rompió
+python -m pytest -q                 # 389 passed, o algo se rompió
 python validar.py prueba            # calibra el validador: 19 de 19
 
 python prospecto.py costo Cartago   # cuánto costaría, sin gastar
@@ -90,7 +101,7 @@ Eso tiene tres consecuencias visibles:
 - `prospectos_crudo.json` se nombra en el diagrama y en los comandos,
   pero hay que generarlo con `prospecto.py buscar`, que cuesta cuota de
   Google.
-- `pytest` reporta **318 pasadas y 2 saltadas** en vez de 320. Las dos
+- `pytest` reporta **387 pasadas y 2 saltadas** en vez de 389. Las dos
   que se saltan son las que recorren el corpus completo buscando que
   ningún nombre ni teléfono real sobreviva a la máscara. Se saltan con
   el motivo escrito, no en silencio.
@@ -135,10 +146,26 @@ proyecto había sacado del prompt a propósito. Conectar Langfuse
 siguiendo cualquier tutorial habría mandado los teléfonos de 3.485
 negocios a la nube, sin un solo error en pantalla.
 
-De ahí salió `mascara.py`: sustituye la identidad antes de que el lote
-salga de la máquina, y no es opcional — no hay parámetro para pedir
-trazas sin ella, y hay una prueba que se pone roja si alguien lo
-agrega.
+De ahí salió `mascara.py`: reemplaza cada nombre y cada teléfono por un
+seudónimo antes de que el lote salga de la máquina, y no es opcional —
+no hay parámetro para pedir trazas sin ella, y hay una prueba que se
+pone roja si alguien lo agrega.
+
+**Qué es y qué no es, con precisión.** El seudónimo es
+`sha256(valor)[:4]`, sin llave. Eso es **seudonimización, no
+anonimización fuerte**: son 4 caracteres hexadecimales, o sea 65.536
+cubetas, y el universo de valores posibles son los 3.485 nombres del
+archivo. Quien tenga la lista —o pueda reconstruirla desde Google
+Places, que es pública— recorre los candidatos, les calcula el hash y
+recupera la correspondencia. El seudónimo es estable a propósito, para
+poder seguir un mismo negocio entre spans, y esa misma estabilidad es
+lo que lo hace reversible.
+
+Lo que la máscara sí logra: que el panel de un tercero no reciba los
+nombres y teléfonos en claro, y que un volcado accidental de las trazas
+no sea una lista de contactos. Lo que no logra: resistir a alguien que
+quiera deshacerla y tenga el universo de entradas. Para eso haría falta
+un HMAC con una llave que no salga de la máquina.
 
 Está verificada en tres niveles, que prueban cosas distintas: la
 lógica contra los 3.485 nombres y teléfonos reales, los parches contra
@@ -200,10 +227,10 @@ que alguien recorta en seis meses.
 ## Estado
 
 ```
-320 pruebas en 13 archivos
+389 pruebas en 16 archivos
 19 casos de calibracion: 13 deben fallar, 6 deben pasar
 app desplegado, con clave, guardando en Google Sheets
-observabilidad conectada, con la identidad afuera
+observabilidad conectada, con la identidad seudonimizada
 respuestas reales: 0
 ```
 

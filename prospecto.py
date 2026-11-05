@@ -18,7 +18,8 @@ import os
 import re
 import sys
 import unicodedata
-from buscar_negocios import buscar_negocios
+from bitacora import anotar
+from buscar_negocios import TOPE_POR_CONSULTA, buscar_negocios
 
 ORIGEN = (10.0567, -84.4361)  # Palmares
 TIPOS = ["carniceria", "minisuper", "supermercado"]
@@ -184,6 +185,68 @@ def puntuar(negocio):
     return round(puntos, 1)
 
 
+def resumen_consultas(consultas):
+    """Lo que hay que saber para NO leer la lista como un censo.
+
+    ORIGEN (03/11/2026), de una revision externa del repo publico.
+
+    El README decia "3.349 negocios candidatos" como si fuera una
+    medicion del mercado. No lo es, por dos motivos que no se veian en
+    ningun lado:
+
+    1. Cada consulta pide TOPE_POR_CONSULTA y Places no pagina este
+       endpoint. Una consulta que devuelve justo el tope esta recortada:
+       en esa zona hay ese numero o mas, y no se sabe cuantos mas.
+    2. Las consultas que fallaban se saltaban con un print y nada mas.
+       Al terminar la corrida no quedaba rastro de cuales zonas no se
+       habian consultado, asi que un canton entero podia faltar y el
+       total se veia igual de redondo.
+
+    El numero es un PISO, y ahora hay con que decir cuanto piso.
+
+    Es una funcion aparte para poder probarla sin gastar cuota: recibe
+    la lista de consultas, no hace ninguna.
+    """
+    fallidas = [c for c in consultas if c.get("error")]
+    al_tope = [c for c in consultas if c.get("tope")]
+
+    return {
+        "consultas": len(consultas),
+        "fallidas": len(fallidas),
+        "al_tope": len(al_tope),
+        "devueltos": sum(c.get("devueltos") or 0 for c in consultas),
+        "tope_por_consulta": TOPE_POR_CONSULTA,
+        "es_censo": not fallidas and not al_tope,
+        "detalle_fallidas": [f"{c['zona']} / {c['tipo']}: {c['error']}"
+                             for c in fallidas],
+        "detalle_al_tope": [f"{c['zona']} / {c['tipo']}"
+                            for c in al_tope],
+    }
+
+
+def imprimir_resumen_consultas(r):
+    """El resumen en pantalla, diciendo lo que el total NO significa."""
+    print(f"\nConsultas a Places: {r['consultas']}")
+    print(f"  Fallidas:             {r['fallidas']}")
+    print(f"  Recortadas por tope:  {r['al_tope']} "
+          f"(devolvieron {r['tope_por_consulta']}, hay mas)")
+
+    if r["es_censo"]:
+        print("\n  Ninguna fallo ni llego al tope: para estas zonas y "
+              "tipos,\n  la lista si es completa.")
+        return
+
+    print("\n  POR ESO EL TOTAL ES UN PISO, NO UN CENSO.")
+    for linea in r["detalle_fallidas"][:10]:
+        print(f"    fallo:  {linea}")
+    if r["fallidas"] > 10:
+        print(f"    ... y {r['fallidas'] - 10} fallos mas")
+    for linea in r["detalle_al_tope"][:10]:
+        print(f"    tope:   {linea}")
+    if r["al_tope"] > 10:
+        print(f"    ... y {r['al_tope'] - 10} al tope mas")
+
+
 def prospectar(provincias=None, tipos=None):
     provincias = provincias or list(CANTONES.keys())
     tipos = tipos or TIPOS
@@ -191,6 +254,9 @@ def prospectar(provincias=None, tipos=None):
     vistos = set()
     resultados = []
     llamadas = 0
+
+    # Una entrada por consulta, exito o fallo. Ver resumen_consultas().
+    consultas = []
 
     for provincia in provincias:
         for canton in CANTONES.get(provincia, []):
@@ -202,7 +268,27 @@ def prospectar(provincias=None, tipos=None):
                     llamadas += 1
                 except Exception as e:
                     print(f"  ERROR en {zona} / {tipo}: {e}")
+                    # Antes esto era solo el print: al terminar no
+                    # quedaba rastro de cual zona no se consulto.
+                    #
+                    # Se guarda la CLASE de la excepcion, no su mensaje.
+                    # El mensaje de buscar_negocios lleva adentro
+                    # respuesta.text de Google, y esto termina en
+                    # bitacora.jsonl, que SI se commitea. El texto
+                    # completo ya salio por pantalla, que es donde lo
+                    # necesita quien esta corriendo la busqueda.
+                    consultas.append({"zona": zona, "tipo": tipo,
+                                      "devueltos": None, "tope": False,
+                                      "error": type(e).__name__})
                     continue
+
+                consultas.append({
+                    "zona": zona, "tipo": tipo,
+                    "devueltos": len(encontrados),
+                    # Justo el tope quiere decir recortada, no completa.
+                    "tope": len(encontrados) >= TOPE_POR_CONSULTA,
+                    "error": None,
+                })
 
                 for n in encontrados:
                     if n["place_id"] in vistos:
@@ -219,6 +305,13 @@ def prospectar(provincias=None, tipos=None):
             print(f"{canton}, {provincia}: {len(vistos)} unicos")
 
     print(f"\nLlamadas a la API: {llamadas}")
+
+    r = resumen_consultas(consultas)
+    imprimir_resumen_consultas(r)
+    # Va a la bitacora y no a un archivo nuevo: ya es el lugar donde
+    # vive una linea por corrida, para siempre y en el repo.
+    anotar("busqueda", r)
+
     resultados.sort(key=lambda x: x["puntaje"], reverse=True)
     return resultados
 

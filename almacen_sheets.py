@@ -39,6 +39,12 @@ Una fila por negocio: place_id, estado, enviado, mensaje, notas. La
 primera fila son los titulos. Se lee y se escribe la hoja entera, que a
 este tamano es mas simple y mas dificil de romper que escribir celdas
 sueltas.
+
+EL ORDEN DE ESCRITURA (03/11/2026)
+
+Se escribe PRIMERO y se recorta el sobrante DESPUES. Nunca al reves.
+Ver escribir() para el origen del cambio: el orden anterior podia dejar
+la pestaña vacia, y es el unico dato del proyecto que no se regenera.
 """
 
 import json
@@ -61,6 +67,10 @@ NOMBRE = "la hoja de Google (pestaña Respuestas)"
 # va a desincronizar.
 from a_sheets import ALCANCES as ALCANCE  # noqa: E402
 from a_sheets import HOJA  # noqa: E402
+# El orden seguro de escritura tambien vive alla, una sola vez:
+# copiarlo aca seria el bug de CONTEXTO_FABRICA sobre el dato
+# que no se regenera. Ver su docstring.
+from a_sheets import escribir_seguro  # noqa: E402
 
 PESTANA = "Respuestas"
 
@@ -80,7 +90,10 @@ PESTANA = "Respuestas"
 COLUMNAS = ["nombre", "canton", "estado", "enviado", "mensaje", "notas",
             "place_id"]
 
+PESTANA_RESPALDO = "Respuestas_respaldo"
+
 _hoja = None
+_libro = None
 
 
 def _credenciales():
@@ -112,17 +125,17 @@ def conectar():
     Se guarda en _hoja para no reconectar en cada interaccion: Streamlit
     vuelve a correr el script entero cada vez que alguien toca algo.
     """
-    global _hoja
+    global _hoja, _libro
     if _hoja is not None:
         return _hoja
 
     import gspread
 
-    libro = gspread.authorize(_credenciales()).open(HOJA)
+    _libro = gspread.authorize(_credenciales()).open(HOJA)
     try:
-        _hoja = libro.worksheet(PESTANA)
+        _hoja = _libro.worksheet(PESTANA)
     except gspread.WorksheetNotFound:
-        _hoja = libro.add_worksheet(PESTANA, rows=500, cols=len(COLUMNAS))
+        _hoja = _libro.add_worksheet(PESTANA, rows=500, cols=len(COLUMNAS))
         _hoja.update([COLUMNAS], "A1")
     return _hoja
 
@@ -188,27 +201,138 @@ def leer():
     return salida
 
 
-def escribir(registros):
-    """Reemplaza la pestaña completa.
-
-    Se reescribe todo en vez de actualizar celdas sueltas porque a 20 o
-    200 filas es instantaneo, y porque una escritura parcial que falla a
-    la mitad deja la hoja en un estado que nadie sabe interpretar.
-
-    gspread manda las filas en una sola llamada, asi que o entran todas
-    o no entra ninguna.
-    """
-    hoja = ensanchar(conectar())
-    filas = [COLUMNAS]
+def _filas(registros):
+    """Los registros como filas de la hoja, con el encabezado adelante."""
+    filas = [list(COLUMNAS)]
     for pid, datos in registros.items():
         # El place_id viene de la llave del dict, no de los datos; el
         # resto sale de los campos. Se arma siguiendo COLUMNAS, asi que
         # cambiar el orden alla cambia la hoja y nada mas.
         fila = {**datos, "place_id": pid}
         filas.append([str(fila.get(c, "")) for c in COLUMNAS])
+    return filas
 
-    hoja.clear()
-    hoja.update(filas, "A1")
+
+def _pestana_respaldo():
+    """La pestaña de respaldo, creandola si no existe."""
+    import gspread
+
+    conectar()
+    try:
+        return _libro.worksheet(PESTANA_RESPALDO)
+    except gspread.WorksheetNotFound:
+        return _libro.add_worksheet(PESTANA_RESPALDO, rows=500,
+                                    cols=len(COLUMNAS))
+
+
+def respaldar(anterior):
+    """Copia a otra pestaña lo que habia ANTES de escribir encima.
+
+    Va en la misma hoja de Google y no en un archivo porque en Streamlit
+    Cloud el disco es efimero: un respaldo que se borra al reiniciar no
+    es un respaldo.
+
+    POR QUE NO ES FATAL SI FALLA
+
+    escribir() ya no puede vaciar la pestaña por si solo, asi que el
+    respaldo es una red de seguridad y no el arnes. Negarse a guardar
+    porque el respaldo fallo dejaria a la persona sin poder anotar, sin
+    ganar nada: lo que esta en la hoja sigue estando.
+
+    Devuelve True si quedo respaldado, para que quien llama lo pueda
+    decir en pantalla.
+    """
+    if not anterior:
+        return False
+    try:
+        destino = _pestana_respaldo()
+        previas = len(destino.get_all_values())
+        escribir_seguro(destino, anterior, previas)
+        return True
+    except Exception:
+        return False
+
+
+def desde_filas(filas):
+    """Las filas crudas de la hoja como {place_id: {campos}}.
+
+    Hace lo mismo que leer() pero sobre valores que ya se bajaron, para
+    no gastar otra llamada: escribir() ya tiene que leer la hoja para
+    respaldarla y para saber que recortar.
+    """
+    if not filas:
+        return {}
+
+    encabezado = [str(c).strip() for c in filas[0]]
+    salida = {}
+    for fila in filas[1:]:
+        registro = dict(zip(encabezado, fila))
+        pid = str(registro.get("place_id") or "").strip()
+        if pid:
+            salida[pid] = {c: str(registro.get(c) or "")
+                           for c in COLUMNAS if c != "place_id"}
+    return salida
+
+
+def fusionar(en_la_hoja, nuevos):
+    """Lo que ya estaba en la hoja, con los nuevos encima.
+
+    ORIGEN (03/11/2026), de la prueba de dos guardados simultaneos que
+    pidio la revision externa.
+
+    escribir() reescribe la pestaña completa con el registro que el app
+    tiene EN MEMORIA, y ese registro se cargo cuando la persona abrio el
+    app. Con dos ruteros anotando a la vez:
+
+        9:00  A abre el app     (ve 10 respuestas)
+        9:00  B abre el app     (ve 10 respuestas)
+        9:05  A anota y guarda  (la hoja queda con 11)
+        9:10  B anota y guarda  (la hoja queda con 11: la de A NO esta)
+
+    B no hizo nada raro: mando las 10 que tenia mas la suya. Lo de A se
+    borro sin un solo error en pantalla, y es el unico dato del proyecto
+    que no se puede volver a generar.
+
+    Fusionar por place_id lo cierra: lo que entra gana sobre su propia
+    fila, y las filas que el que guarda no conocia se quedan.
+
+    LO QUE ESTO NO HACE, Y HAY QUE SABERLO
+
+    Un borrado deja de propagarse: si alguien quita un registro del
+    dict y guarda, la fila vuelve desde la hoja. Hoy no importa porque
+    nada borra -- anotar() agrega y actualiza, nunca saca -- y entre
+    "una fila de mas que se ve" y "una anotacion que desaparece", la
+    primera es la que se puede arreglar mirando.
+
+    Si algun dia hay que borrar de verdad, esto tiene que cambiar a la
+    vez que aparezca el borrado, no antes.
+    """
+    fusionado = dict(en_la_hoja)
+    fusionado.update(nuevos)
+    return fusionado
+
+
+def escribir(registros):
+    """Reemplaza la pestaña completa, sin poder dejarla vacia.
+
+    Cuatro pasos, en este orden y no en otro:
+
+        1. leer lo que hay      (para respaldar, fusionar y recortar)
+        2. respaldarlo          (red de seguridad; no fatal si falla)
+        3. fusionar             (para no pisar a quien guardo mientras)
+        4. escribir y recortar  (ver escribir_seguro)
+
+    Se reescribe todo en vez de actualizar celdas sueltas porque a 20 o
+    200 filas es instantaneo, y porque una escritura parcial que falla a
+    la mitad deja la hoja en un estado que nadie sabe interpretar.
+    """
+    hoja = ensanchar(conectar())
+
+    anterior = hoja.get_all_values()
+    respaldar(anterior)
+
+    filas = _filas(fusionar(desde_filas(anterior), registros))
+    escribir_seguro(hoja, filas, len(anterior))
 
 
 def respaldo(ruta="respuestas_respaldo.json"):

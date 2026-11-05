@@ -14,6 +14,7 @@ Un solo hecho del negocio desincronizo dos archivos.
 Una regla, un lugar. Si necesitas la regla en dos partes, la importas.
 """
 
+import html
 import re
 import unicodedata
 
@@ -320,6 +321,105 @@ def como_dato(valor, largo=LARGO_MAXIMO_CAMPO):
     if len(texto) > largo:
         texto = texto[:largo].rstrip() + "..."
     return texto
+
+
+def como_html(valor):
+    """Deja un valor en condiciones de entrar a HTML: sin etiquetas.
+
+    ORIGEN (03/11/2026), de una revision externa del repo publico.
+
+    Es la MISMA vulnerabilidad que resolvio como_dato(), en otro canal.
+
+    La frontera de este proyecto dice que el texto escrito por terceros
+    no puede dar ordenes. como_dato() lo cierra hacia el modelo. Pero
+    pantallas/Rutas.py metia el nombre, la categoria y la direccion que
+    devuelve Google directo en `st.markdown(..., unsafe_allow_html=True)`,
+    o sea texto de terceros entrando a un **motor de renderizado** en
+    vez de a un modelo.
+
+    Un negocio registrado en Google Maps como
+
+        Mini Super <script>...</script>
+
+    se ejecutaba en el telefono del rutero. Y a diferencia del prompt,
+    aca no hay validador ni persona que lea antes: la tarjeta se dibuja
+    sola.
+
+    LO QUE HACE, Y POR QUE ESO
+
+    Dos pasos, el mismo criterio que como_dato():
+
+    1. Aplasta los caracteres de control, incluido U+202E, que invierte
+       visualmente el texto y haria que la tarjeta no diga lo que
+       parece decir.
+    2. Escapa los metacaracteres de HTML, asi que `<` deja de abrir una
+       etiqueta y pasa a ser el caracter `<`.
+
+    **No censura nada.** Un nombre con `<script>` adentro se sigue
+    mostrando, escrito tal cual, visible. Igual que con como_dato(): no
+    se adivina la intencion, se le quita la capacidad.
+
+    POR QUE ESCAPAR Y NO USAR st.write
+
+    Las tarjetas dependen de las clases de estilo.py para tener altura
+    de pulgar y jerarquia de tamaños. Cambiarlas por componentes de
+    texto normales arreglaria la vulnerabilidad y rompería el diseño de
+    la unica pantalla que se usa de pie, al lado del camion.
+
+    Vive aqui y no en la pantalla porque el mismo valor puede entrar a
+    HTML desde mas de un lugar -- y una constante o una funcion copiada
+    se desincroniza. Van cuatro veces en este proyecto.
+    """
+    texto = "" if valor is None else str(valor)
+
+    # Misma categoria "C" que como_dato(): control, formato, sustitutos
+    # y privados.
+    texto = "".join(" " if unicodedata.category(c).startswith("C") else c
+                    for c in texto)
+    texto = " ".join(texto.split())
+
+    return html.escape(texto, quote=True)
+
+
+# ---------------------------------------------------------------------
+# SI EL MENSAJE SE PUEDE MANDAR
+# ---------------------------------------------------------------------
+# Los dos unicos valores que el validador escribe. Estaban como texto
+# suelto en grafo.py, validar.py y pantallas/Mensajes.py -- tres copias
+# de la misma constante, que es el bug que este proyecto ya repitio
+# cuatro veces.
+VALIDACION_OK = "ok"
+VALIDACION_REVISAR = "revisar"
+
+
+def se_puede_mandar(negocio):
+    """True si a este negocio se le puede mandar el mensaje redactado.
+
+    Tres condiciones: hay mensaje, paso el validador, y hay celular.
+
+    SE EXIGE == VALIDACION_OK, NO != VALIDACION_REVISAR
+    (03/11/2026, de una revision externa del repo publico)
+
+    pantallas/Mensajes.py filtraba con `!= "revisar"`, asi que pasaba
+    todo lo demas: un campo ausente, el None que escribe el pipeline
+    cuando no hay mensaje, un valor editado a mano en el JSON, o lo que
+    escriba una version futura del validador.
+
+    O sea que el unico filtro que decide si un mensaje sale hacia un
+    negocio real fallaba ABIERTO, en un proyecto que falla cerrado en
+    todo lo demas: acceso.py sin clave no abre, mascara.py sin registro
+    borra los atributos, es_celular() ante la duda no promete canal.
+
+    La forma estricta ya se usaba en grafo.py. La pantalla era la
+    inconsistente, y la pantalla es la que manda el mensaje.
+
+    Vive aqui y no en la pantalla por lo mismo que todo lo demas: una
+    pantalla no se puede probar sin levantar Streamlit, y una regla que
+    no se puede probar es una regla que nadie revisa.
+    """
+    return (bool(negocio.get("mensaje"))
+            and negocio.get("validacion") == VALIDACION_OK
+            and es_celular(negocio.get("telefono")))
 
 
 # ---------------------------------------------------------------------

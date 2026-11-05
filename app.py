@@ -97,6 +97,7 @@ import streamlit as st
 
 import inicio
 import registro
+from reglas import como_html
 
 # Antes que cualquier otro comando de Streamlit, y antes del menú: si la
 # clave no está, acá se corta y no se llega a ninguna pantalla.
@@ -130,9 +131,13 @@ def pie():
 
         # Si quien anota no sabe dónde quedó lo que anotó, no puede
         # confiar en el app.
+        # Escapado aunque hoy donde() devuelva cadenas nuestras: lo
+        # encontro el candado de tests/test_falla_cerrado.py, que mira
+        # la clase de error y no el archivo donde aparecio.
         st.markdown(
             f'<p class="canal">Las respuestas se guardan en '
-            f'{registro.donde()}.</p>', unsafe_allow_html=True)
+            f'{como_html(registro.donde())}.</p>',
+            unsafe_allow_html=True)
 
         inicio.aviso_de_almacen()
 

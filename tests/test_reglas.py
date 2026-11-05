@@ -216,8 +216,14 @@ RAIZ = Path(__file__).parent.parent
 # Leccion del 07/10/2026: una prueba escrita para el caso que paso no
 # cubre la clase de error. Cuando se agregue un archivo que importe de
 # reglas.py, va aqui.
+#
+# 03/11/2026: las dos pantallas faltaban, y las dos importan de
+# reglas.py (es_celular, normalizar, y desde hoy como_html y
+# se_puede_mandar). Era la misma leccion sin aplicar.
 MODULOS_CON_REGLAS = ["prospecto.py", "grafo.py", "validar.py",
-                      "validar_claude.py", "zonas.py"]
+                      "validar_claude.py", "zonas.py",
+                      "pantallas/Rutas.py", "pantallas/Mensajes.py",
+                      "app.py", "inicio.py"]
 
 
 @pytest.mark.parametrize("archivo", MODULOS_CON_REGLAS)
@@ -235,7 +241,9 @@ def test_las_reglas_viven_solo_en_reglas_py(archivo):
     texto = ruta.read_text(encoding="utf-8")
 
     for definicion in ("CONTEXTO_FABRICA = ", "PROHIBIDAS = ",
-                       "CADENAS = ", "CLIENTES_ACTUALES = "):
+                       "CADENAS = ", "CLIENTES_ACTUALES = ",
+                       "VALIDACION_OK = ", "VALIDACION_REVISAR = ",
+                       "def se_puede_mandar", "def como_html"):
         assert definicion not in texto, (
             f"{archivo} define {definicion.strip(' =')}. "
             f"Tiene que importarlo de reglas.py."

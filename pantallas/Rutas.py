@@ -28,7 +28,7 @@ el archivo sin costo y sin esperar. La logica esta en zonas.py.
 import streamlit as st
 
 import zonas
-from reglas import es_celular, normalizar
+from reglas import como_html, es_celular, normalizar
 
 # NO se llama a inicio.preparar() aca. Lo hace app.py una sola vez,
 # antes del menu (ver su docstring). Si esta pantalla lo llamara otra
@@ -45,21 +45,25 @@ def _tel(numero):
 
 
 def tarjeta(i, n):
+    # TODO lo que venga del negocio pasa por como_html() antes de entrar
+    # a unsafe_allow_html. El nombre, la categoria y la direccion los
+    # escribio Google, o sea un tercero. Ver reglas.como_html().
     st.markdown(
         f'<p class="negocio"><span class="orden">{i}</span>'
-        f'{n["nombre"]}</p>',
+        f'{como_html(n["nombre"])}</p>',
         unsafe_allow_html=True,
     )
 
     donde = [n.get("canton"), n.get("categoria")]
     if n.get("distancia_km") is not None:
         donde.append(f"{n['distancia_km']:.0f} km de Palmares")
-    st.markdown(f'<p class="donde">{" · ".join(str(x) for x in donde if x)}'
+    st.markdown(f'<p class="donde">'
+                f'{" · ".join(como_html(x) for x in donde if x)}'
                 f'</p>', unsafe_allow_html=True)
 
     direccion = zonas.direccion_corta(n)
     if direccion:
-        st.markdown(f'<p class="direccion">{direccion}</p>',
+        st.markdown(f'<p class="direccion">{como_html(direccion)}</p>',
                     unsafe_allow_html=True)
 
     telefono = n.get("telefono")
@@ -77,10 +81,13 @@ def tarjeta(i, n):
 
     # El canal es un dato; los avisos son advertencias. Distinto peso,
     # distinto color.
-    st.markdown(f'<p class="canal">{zonas.canal(n)}</p>',
+    # Hoy canal() y avisos() devuelven frases fijas nuestras, pero las
+    # dos reciben el negocio: el dia que alguna interpole el nombre, el
+    # agujero vuelve sin que nadie toque esta linea.
+    st.markdown(f'<p class="canal">{como_html(zonas.canal(n))}</p>',
                 unsafe_allow_html=True)
     for aviso in zonas.avisos(n):
-        st.markdown(f'<p class="aviso">{aviso}</p>',
+        st.markdown(f'<p class="aviso">{como_html(aviso)}</p>',
                     unsafe_allow_html=True)
 
     st.markdown('<hr class="corte">', unsafe_allow_html=True)

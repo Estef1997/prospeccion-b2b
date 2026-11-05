@@ -1,0 +1,70 @@
+# Corre las pruebas en la copia publica del repo.
+#
+# POR QUE EXISTE (03/11/2026)
+#
+# Un revisor externo leyo el repo y dijo que no pudo correr las pruebas.
+# Fue generoso: reviso igual. El proximo puede no serlo, y "389 pruebas"
+# en un README es una afirmacion que nadie puede verificar sin instalar
+# el proyecto a mano.
+#
+# La regla ya estaba escrita en el proyecto -- "un repo publico con
+# pruebas rojas es peor que uno sin pruebas" -- como un paso manual.
+# Esto la vuelve automatica en vez de un recordatorio.
+#
+# LAS DOS PRUEBAS QUE SE SALTAN
+#
+# La copia publica no trae prospectos_crudo.json, asi que las dos
+# pruebas que recorren el corpus completo buscando que ningun nombre ni
+# telefono real sobreviva a la mascara no pueden correr.
+#
+# Se saltan con su motivo escrito, y `-rs` lo imprime en el log. Eso es
+# a proposito: una prueba que se salta en silencio es una prueba que
+# nadie sabe que falta. Lo esperado en esta copia es
+# "387 passed, 2 skipped".
+
+name: pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # La version con la que se desarrollo. No se usa una matriz
+          # de versiones: este proyecto corre en una maquina y en un
+          # Streamlit Cloud, los dos con 3.12.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Instalar
+        # requirements-dev.txt incluye requirements.txt, asi que con
+        # este comando queda todo. Ver su comentario.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Pruebas
+        # -rs imprime el motivo de cada salto. Sin eso, las dos que se
+        # saltan por falta de datos se verian como si no existieran.
+        run: python -m pytest -q -rs
+
+      - name: Estructura
+        # Falla si reaparece una carpeta pages/ -- que seria el agujero
+        # de acceso sin clave del 12/10 -- o si un secreto se sale del
+        # .gitignore. Avisa, no rompe, salvo en esos casos.
+        run: python verificar_estructura.py

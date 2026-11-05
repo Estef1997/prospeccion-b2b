@@ -36,7 +36,8 @@ from zonas import de_provincia, provincias, resolver_provincia
 # Los hechos de la fabrica viven en reglas.py, no aca. El validador
 # importa del mismo lugar: una regla, un lugar.
 from reglas import (CAMPOS_CLASIFICADOR, CAMPOS_REDACTOR,
-                    CONTEXTO_FABRICA, como_dato, contexto_para,
+                    CONTEXTO_FABRICA, VALIDACION_OK,
+                    VALIDACION_REVISAR, como_dato, contexto_para,
                     es_celular, una_por_marca)
 
 load_dotenv()
@@ -551,8 +552,9 @@ def correr(negocios: list, destino: str = None) -> list:
             "razon": final["razon"],
             "confianza": final["confianza"],
             "mensaje": final.get("mensaje"),
-            "validacion": ("ok" if final.get("valido") else "revisar"
-                           ) if final.get("mensaje") else None,
+            "validacion": ((VALIDACION_OK if final.get("valido")
+                            else VALIDACION_REVISAR)
+                           if final.get("mensaje") else None),
             "validacion_detalle": "; ".join(_con_citas(final))
                                   if final.get("problemas") else "",
             # La lista cruda ademas del texto: el texto es para leer,
@@ -596,7 +598,7 @@ def resumen(resultados: list) -> None:
 
         agotados = [r for r in con_mensaje
                     if (r.get("intentos") or 0) >= MAX_INTENTOS
-                    and r.get("validacion") != "ok"]
+                    and r.get("validacion") != VALIDACION_OK]
         if agotados:
             print(f"\n  {m['agotados']} agotaron los {MAX_INTENTOS} "
                   f"intentos y quedaron para revision manual:")

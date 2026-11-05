@@ -31,7 +31,20 @@ CAMPOS = ",".join([
 ])
 
 
-def buscar_negocios(zona, tipo, max_resultados=20):
+# Lo maximo que Places devuelve por consulta de texto. No es una
+# eleccion nuestra: es el tope de la API, y no hay paginacion en este
+# endpoint.
+#
+# ES LA RAZON POR LA QUE LA LISTA NO ES UN CENSO (03/11/2026)
+#
+# Una consulta que devuelve exactamente este numero esta recortada: en
+# esa zona hay ESTE_TOPE o mas negocios de ese tipo, y no se sabe
+# cuantos mas. Por eso prospectar() anota cuales consultas llegaron al
+# tope -- sin eso, el total parece una medicion y es un piso.
+TOPE_POR_CONSULTA = 20
+
+
+def buscar_negocios(zona, tipo, max_resultados=TOPE_POR_CONSULTA):
     """Busca negocios de un tipo en una zona."""
     if not API_KEY:
         raise RuntimeError(

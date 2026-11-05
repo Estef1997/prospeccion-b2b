@@ -3,7 +3,7 @@
 Fuente de verdad del proyecto. Si algo acá contradice al código, uno de
 los dos está mal: hay que arreglarlo, no ignorar la diferencia.
 
-Actualizado: 2026-10-12
+Actualizado: 2026-11-03
 
 ---
 
@@ -100,7 +100,7 @@ ya resuelto al modelo; el modelo nunca lo deduce.
 ## Cómo se corre
 
 ```bash
-python -m pytest -q                # 0. 243 passed, o algo se rompió
+python -m pytest -q                # 0. 389 passed, o algo se rompió
 python validar.py prueba           # 0b. Calibra: 8 de 8 o no seguir
 
 python prospecto.py costo Cartago  # 1a. Cuánto costaría, sin gastar
@@ -327,11 +327,14 @@ lista.**
 | Archivo | Qué saca de `reglas.py` |
 |---|---|
 | `prospecto.py` | `CADENAS`, `CLIENTES_ACTUALES`, `SENALES_COMPETIDOR` |
+| `prospecto.py` | `TOPE_POR_CONSULTA`, de `buscar_negocios.py` |
 | `grafo.py` | `contexto_para()`, `CAMPOS_CLASIFICADOR`, `CAMPOS_REDACTOR`, `es_celular()`, `como_dato()` |
 | `validar.py` | `prohibidas_para()`, `MAX_PALABRAS` |
 | `validar_claude.py` | `contexto_para()`, `como_dato()` |
 | `zonas.py` | `es_celular()`, `es_fijo()`, `normalizar()` |
-| `pantallas/*.py` | `es_celular()`, `normalizar()` |
+| `pantallas/*.py` | `es_celular()`, `normalizar()`, `como_html()` |
+| `pantallas/Mensajes.py` | `se_puede_mandar()` |
+| `almacen_sheets.py` | `escribir_seguro()`, `HOJA`, `ALCANCES`, de `a_sheets.py` |
 
 **Las pantallas no definen reglas.** `pantallas/Mensajes.py` no decide qué
 es un celular: pregunta. Si mañana SUTEL asigna el 3 a móviles, se
@@ -409,6 +412,18 @@ enmascarado y el que sale en los ejemplos (`mask`) **no mira los
 atributos de instrumentación de terceros**, que es por donde llegan los
 spans de LangGraph. Configurarlo no falla; simplemente no enmascara
 nada. El que sirve es `mask_otel_spans`.
+
+**Qué es la máscara, con precisión (corregido el 03/11/2026).** El
+seudónimo es `sha256(valor)[:4]`, sin llave: 4 caracteres hexadecimales,
+65.536 cubetas, sobre un universo de 3.485 nombres que además es público
+en Google Maps. Eso es **seudonimización, no anonimización fuerte** —
+quien quiera deshacerla recorre los candidatos y recupera la
+correspondencia. El seudónimo es estable a propósito, para seguir un
+negocio entre spans, y esa misma estabilidad es lo que lo hace
+reversible. Lo que sí logra: que el panel de un tercero no reciba los
+datos en claro, y que un volcado de trazas no sea una lista de
+contactos. Para lo otro haría falta un HMAC con llave que no salga de la
+máquina.
 
 De ahí salieron `mascara.py` y `trazas.py`, con dos reglas que no se
 negocian:
@@ -807,9 +822,221 @@ Patrón que ya se repitió cuatro veces en este proyecto:
 | `"ampm"` en la lista y 6 AM PM sin marcar | patrón muerto: `\bampm\b` no agarra `am pm` |
 | la hoja se actualiza, faltan 2 columnas | Google recorta en silencio |
 | `leer()` devuelve vacío con la hoja llena | se perdió la columna llave |
+| el app dice "no hay respuestas" y la hoja está vacía | `clear()` entró y `update()` falló |
+| se anotan 20 respuestas y desaparecen al reiniciar | Sheets no respondió al arrancar y se cayó al disco efímero |
+| B guarda y la anotación de A ya no está | las dos pantallas mandaban su memoria completa, sin fusionar |
 
 Ninguno lanzó excepción. **Lo que hay que revisar no es si el código
 corrió: es si el dato quedó como debía.**
+
+---
+
+## Las respuestas no estaban seguras (03/11/2026)
+
+Tres hallazgos de una revisión externa del repo público, sobre el único
+dato del proyecto que no se puede regenerar. Los tres eran silenciosos.
+
+### 1. `clear()` y `update()` son dos llamadas
+
+`almacen_sheets.escribir()` hacía `hoja.clear()` y después
+`hoja.update()`, con un comentario que decía *"o entran todas o no entra
+ninguna"*. **El comentario era falso.** Si la primera entraba y la
+segunda fallaba —red, token vencido, un 429— la pestaña quedaba vacía.
+
+Y vacía es el peor estado posible: `leer()` sobre una hoja vacía no
+falla, devuelve `{}`, y el app muestra "no hay respuestas" sin un solo
+error. `a_sheets.py` repetía el patrón, y ahí viven las columnas
+manuales que se escribieron antes de que el app existiera y que **solo**
+están en la hoja.
+
+Ahora se **escribe primero y se recorta después**, en
+`a_sheets.escribir_seguro()`. El criterio de la decisión importa más que
+la decisión:
+
+> No se eligió el método que falla menos. Se eligió el que **falla
+> mejor**: su peor caso son filas viejas colgando abajo, que se ven y se
+> arreglan volviendo a guardar. Actualizar celda por celda deja la hoja
+> mezclada sin saber cuáles filas son nuevas; un `batch_update` atómico
+> depende de que Google y gspread lo traten así, y eso no se puede
+> comprobar desde acá.
+
+La función vive en **un solo archivo** y `almacen_sheets.py` la importa.
+Copiarla en los dos sería el bug de `CONTEXTO_FABRICA` otra vez, esta
+vez sobre la escritura del dato irrecuperable.
+
+Y hay respaldo: cada guardado copia lo que la pestaña tenía antes a
+`Respuestas_respaldo`, en la misma hoja. Va en la hoja y no en un
+archivo porque allá el disco se borra. **Si el respaldo falla, se guarda
+igual** — la red de seguridad no es el arnés, y negarse a guardar porque
+falló la copia dejaría a la persona sin poder anotar sin ganar nada.
+
+### 2. Caerse al disco local era perder los datos
+
+Si Sheets no respondía al arrancar, el app pasaba a `respuestas.json` en
+el disco del servidor. En la máquina de desarrollo está bien. **Hospedado es
+pérdida garantizada**, porque en Streamlit Cloud el disco se borra al
+reiniciar.
+
+Peor: la decisión quedaba cacheada con `@st.cache_resource`, así que un
+corte de red de diez segundos al arrancar condenaba **toda la vida del
+servidor** a escribir donde se va a borrar.
+
+Los dos hallazgos se multiplicaban: el fallo era silencioso *y* la hoja
+podía quedar vacía.
+
+Ahora hay tres estados, en `inicio.py`:
+
+| estado | cuándo | qué pasa |
+|---|---|---|
+| `hoja` | Sheets responde | lo normal |
+| `solo_lectura` | Sheets no responde | se ve todo, **no se acepta anotar**, error rojo, se reintenta |
+| `local` | **solo** con `modo = "desarrollo"` | disco local, con aviso |
+
+**El disco local hay que pedirlo escribiéndolo.** Antes era el camino
+por defecto, y por defecto es exactamente donde no tenía que estar.
+
+Y el fallo ya no se cachea: `_hoja_conectada()` cachea solo el éxito,
+porque `@st.cache_resource` no guarda nada cuando la función lanza.
+
+> **El aviso de solo lectura va con `st.error`, no con una línea gris al
+> pie.** Es la diferencia entre "esto se guarda en otro lado" y "esto NO
+> se guarda". Un aviso gris para lo segundo es lo mismo que no avisar.
+
+### 3. Dos ruteros anotando a la vez se pisaban
+
+`escribir()` reescribe la pestaña con el registro que el app tiene **en
+memoria**, y esa memoria se cargó cuando la persona abrió el app:
+
+```
+9:00  A y B abren el app   (los dos ven 10 respuestas)
+9:05  A anota y guarda     (la hoja queda con 11)
+9:10  B anota y guarda     (la hoja queda con 11: la de A NO está)
+```
+
+B no hizo nada raro: mandó las 10 que tenía más la suya. Lo de A se
+borró sin un solo error.
+
+`almacen_sheets.fusionar()` lo cierra por `place_id`: lo que entra gana
+sobre su propia fila, y las filas que el que guarda no conocía se
+quedan. **Lo que esto no hace:** un borrado deja de propagarse. Hoy no
+importa porque nada borra, y si algún día hay que borrar de verdad, esto
+cambia a la vez que aparezca el borrado, no antes.
+
+---
+
+## Los dos lugares que fallaban abierto (03/11/2026)
+
+Este proyecto falla cerrado en todo lo demás. `acceso.py` sin clave no
+abre. `mascara.py` sin registro borra los atributos en vez de dejarlos
+pasar. `es_celular()` ante la duda no promete un canal. El validador
+nunca aprueba por defecto. Estos dos eran la excepción.
+
+### `!= "revisar"` dejaba pasar todo lo demás
+
+`pantallas/Mensajes.py` filtraba los mensajes listos con
+`d.get("validacion") != "revisar"`. El pipeline escribe tres valores:
+`"ok"`, `"revisar"` y `None`. Con esa forma pasaba **todo lo que no
+fuera exactamente `"revisar"`**: un campo ausente, el `None`, un valor
+editado a mano en el JSON, o lo que escriba una versión futura del
+validador.
+
+O sea que el único filtro que decide si un mensaje sale hacia un negocio
+real fallaba abierto. La forma estricta ya se usaba en `grafo.py`; **la
+pantalla era la inconsistente, y la pantalla es la que manda.**
+
+Ahora es `reglas.se_puede_mandar()`, con `== VALIDACION_OK`. Se movió a
+`reglas.py` por el motivo de siempre: una pantalla no se puede probar
+sin levantar Streamlit, y **una regla que no se puede probar es una
+regla que nadie revisa**.
+
+### El texto de afuera tampoco dibuja la pantalla
+
+**Es la misma vulnerabilidad del punto de inyección, en otro canal.**
+
+La frontera de este proyecto dice que el texto escrito por terceros no
+puede dar órdenes. `como_dato()` lo cierra hacia el **modelo**. Pero
+`pantallas/Rutas.py` metía el nombre, la categoría y la dirección que
+devuelve Google directo en `st.markdown(..., unsafe_allow_html=True)`:
+texto de terceros llegando a un **motor de renderizado** en vez de a un
+modelo.
+
+Un negocio registrado en Google Maps como
+
+```
+Mini Súper <script>...</script>
+```
+
+se ejecutaba en el teléfono del rutero. Y a diferencia del prompt, acá
+**no hay validador ni persona que lea antes**: la tarjeta se dibuja
+sola.
+
+`reglas.como_html()` hace lo mismo que `como_dato()` con el mismo
+criterio: aplasta los caracteres de control —incluido U+202E, que
+invierte el texto en pantalla— y escapa los metacaracteres de HTML. **No
+censura nada**: un nombre con `<script>` adentro se sigue mostrando,
+escrito tal cual. No se adivina la intención, se le quita la capacidad.
+
+Se escapa en vez de usar `st.write` porque las tarjetas dependen de las
+clases de `estilo.py` para tener altura de pulgar, y la pantalla de
+Rutas es la única que se usa de pie al lado del camión.
+
+> **La lección de método, que es la de siempre en este proyecto:** el
+> candado de `tests/test_falla_cerrado.py` recorre los cuatro archivos
+> que usan `unsafe_allow_html`, no solo el que tenía el bug. Al correrlo
+> por primera vez encontró uno más, en `app.py`, que nadie había
+> mirado.
+
+---
+
+## El acceso (03/11/2026)
+
+Dos cosas baratas que faltaban.
+
+**Cambiar la clave ahora expulsa.** Antes no, y eso rompía una promesa
+que `acceso.py` escribía en su propio docstring: *"si alguien se va hay
+que cambiarle la clave a todos"*. Cambiarla no echaba a nadie — solo le
+impedía volver a entrar la próxima vez. La sesión guarda una **huella**
+de la clave con la que entró; si la configurada deja de coincidir, se
+cae. Se guarda la huella y no la clave: para saber que cambió no hace
+falta tener el secreto.
+
+**Cinco intentos y un minuto de espera.** Y lo que el límite no hace,
+dicho en el código y verificado por una prueba:
+
+> El contador vive en la sesión, así que un script abre una sesión nueva
+> y vuelve a cero. Esto frena el tanteo a mano, no un ataque
+> automatizado. Es per-sesión **a propósito**: un contador compartido
+> por todo el servidor frenaría el script, pero entonces cualquiera con
+> el enlace deja a los tres ruteros afuera. A esta escala, quedarse sin
+> app en medio de la ruta es un daño más probable que el ataque que
+> evitaría. Lo que de verdad protege es que la clave sea larga.
+
+---
+
+## La lista es un piso, no un censo (03/11/2026)
+
+El README presentaba **3.349 candidatos** como si fuera una medición del
+mercado. No lo es, por dos motivos que no se veían en ningún lado:
+
+1. Cada consulta pide `TOPE_POR_CONSULTA` (20) y el endpoint de texto de
+   Places **no pagina**. Toda zona con más de 20 negocios de un tipo
+   quedó recortada, y no se sabe por cuánto.
+2. Las consultas que fallaban se saltaban con un `print` y nada más. Al
+   terminar no quedaba rastro de cuál zona no se había consultado, así
+   que un cantón entero podía faltar y el total se veía igual de
+   redondo.
+
+**Las proporciones se sostienen; el total absoluto no.** El 29% con
+celular y el 96% de independientes se calculan sobre lo que hay y
+siguen siendo válidos. Lo que no es válido es leer 3.349 como "hay 3.349
+negocios de estos tipos en Costa Rica".
+
+`prospecto.resumen_consultas()` anota por corrida cuántas consultas
+fallaron, cuántas llegaron al tope, y cuáles. Va a `bitacora.jsonl`, que
+ya es el lugar donde vive una línea por corrida.
+
+**No se volvió a buscar para medirlo.** Cuesta cuota de Google, y el
+registro sirve desde la próxima corrida que alguien haga por su cuenta.
 
 ---
 
@@ -1166,6 +1393,15 @@ pendientes que son **decisiones**, no trabajo.
       y la portada se quitó el 12/10 (ver "El app")
 - [x] ~~Hospedar el app para que un rutero lo abra~~ — 08–12/10
 - [x] ~~Inyección de prompt~~ — 14/10, `como_dato()` + 14 pruebas
+- [x] ~~Las respuestas no estaban seguras~~ — 03/11, `escribir_seguro()`,
+      respaldo automático, solo lectura y `fusionar()`
+- [x] ~~Dos lugares que fallaban abierto~~ — 03/11, `se_puede_mandar()`
+      y `como_html()`
+- [x] ~~El acceso: expulsar al cambiar la clave, limitar intentos~~ —
+      03/11
+- [x] ~~`DESPLIEGUE.md` corrompido con un `zonas.py` viejo~~ — 03/11,
+      restaurado del commit anterior al renombre del 19/10
+- [x] ~~Integración continua en la copia pública~~ — 03/11
 
 ### Operación
 

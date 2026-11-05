@@ -1,181 +1,357 @@
-"""
-Prospectos ordenados por zona, para que un repartidor los visite.
+# Despliegue — poner el app en internet
 
-OTRA PREGUNTA, OTRO ORDEN
+Para que un rutero lo abra desde su teléfono.
 
-El pipeline de WhatsApp pregunta "¿es buen prospecto?" y ordena todo el
-pais por puntaje. Un repartidor pregunta otra cosa: "¿que me queda de
-paso hoy?". Al de Palmares no le sirve el mejor prospecto de Limon.
+Escrito el 08/10/2026, **hecho el 12/10/2026**. La decisión de
+hospedarlo, y lo que cuesta, está en el encabezado de `app.py`.
 
-Por eso aca la ZONA filtra y el puntaje solo ordena lo que quedo. Es el
-orden inverso al del resto del proyecto, y es a proposito.
+Queda como procedimiento para rehacerlo: el app se puede borrar y volver
+a crear, y hay al menos un caso en que **hay que** hacerlo (ver paso 4).
 
-SIN MODELO
+---
 
-Esto lee prospectos_crudo.json, no prospectos_calificados.json. Las
-banderas y el puntaje los calculo prospecto.py con codigo determinista,
-asi que esta pantalla funciona sobre los 3.349 sin gastar un centavo ni
-esperar una corrida.
+## Antes de empezar: la regla que no se rompe
 
-La contra: estos negocios NO pasaron por el calificador, asi que puede
-haber competidores que el nombre no delata. Por eso las banderas se
-muestran en pantalla en vez de filtrarse en silencio -- el repartidor
-decide con el negocio enfrente, que es mas de lo que puede hacer el
-modelo.
-"""
+```
+Los datos de negocios SÍ suben al repo privado.
+credenciales.json y .env NO suben NUNCA, ni a un repo privado.
+```
 
-import json
-import os
-import re
+Un repo privado se puede volver público por error, se comparte con
+colaboradores, y **lo que se sube una vez queda en el historial de git
+aunque después se borre el archivo**. Borrar un secreto subido no es
+borrarlo: es dejarlo en el historial y creer que se fue.
 
-from reglas import POR_MARCA, es_celular, marca, una_por_marca  # noqa: F401
+Si alguna vez subís `credenciales.json` por accidente, lo correcto no es
+borrar el archivo — es **revocar esa cuenta de servicio en Google Cloud
+y crear una nueva**.
 
-ORIGEN = "prospectos_crudo.json"
-PROVINCIA_POR_DEFECTO = "Alajuela"
+---
 
+## Paso 1 — Preparar la carpeta
 
-def cargar(ruta=ORIGEN):
-    if not os.path.exists(ruta):
-        return []
-    with open(ruta, encoding="utf-8") as f:
-        return json.load(f)
+Reemplazá los archivos que te mandé y comprobá que el proyecto esté
+sano:
 
+```powershell
+python -m pytest -q              # 243 passed
+python verificar_estructura.py   # sin FALTAN, salvo README.md
+```
 
-def visitables(datos):
-    """Lo que tiene sentido que alguien visite.
+Renombrá `gitignore.txt` a `.gitignore` si todavía no lo está:
 
-    Mismo criterio que grafo.candidatos(), mas una condicion propia de
-    este canal: tiene que haber direccion. Sin direccion el repartidor
-    no sabe adonde ir, por bueno que sea el puntaje.
-    """
-    return [d for d in datos
-            if not d.get("fuera_de_rubro")
-            and not d.get("cerrado")
-            and not d.get("es_cliente")
-            and (d.get("direccion") or "").strip()]
+```powershell
+Get-ChildItem .gitignore
+```
 
+Si no existe:
 
-def de_provincia(datos, provincia=PROVINCIA_POR_DEFECTO):
-    return [d for d in datos if d.get("provincia") == provincia]
+```powershell
+Rename-Item gitignore.txt .gitignore
+```
 
+---
 
-def de_cantones(datos, cantones):
-    """Varios cantones a la vez: una ruta cruza mas de uno."""
-    elegidos = set(cantones or [])
-    if not elegidos:
-        return list(datos)
-    return [d for d in datos if d.get("canton") in elegidos]
+## Paso 2 — Comprobar qué subiría, ANTES de subirlo
 
+Este es el paso que más vale la pena. Si el proyecto todavía no es un
+repo:
 
-def por_puntaje(datos):
-    return sorted(datos, key=lambda d: d.get("puntaje") or 0, reverse=True)
+```powershell
+git init
+git add .
+```
 
+Y ahora, antes de hacer nada más, mirá qué quedó listo para subir:
 
-# una_por_marca vive en reglas.py: la usan los dos canales. Se reexporta
-# aca para que las pantallas y las pruebas la pidan por zonas.
+```powershell
+git status --short
+```
 
+**Buscá estas dos líneas. Si aparecen, pará:**
 
-def cantones_con_conteo(datos):
-    """Cantones presentes y cuantos visitables hay en cada uno.
+```
+A  credenciales.json
+A  .env
+```
 
-    Ordenado por cantidad: la ruta que mas rinde aparece de primera.
-    """
-    conteo = {}
-    for d in datos:
-        c = d.get("canton")
-        if c:
-            conteo[c] = conteo.get(c, 0) + 1
-    return sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))
+Si aparecen, el `.gitignore` no se está aplicando. Lo más probable es
+que el archivo se llame `gitignore.txt` todavía, o que Windows le haya
+puesto `.gitignore.txt`. Comprobalo con:
 
+```powershell
+git check-ignore -v credenciales.json
+```
 
-def enlace_maps(negocio):
-    """Para abrir la direccion en el telefono, de camino.
+Si devuelve una línea, está bien ignorado. Si no devuelve nada, **no lo
+está**, y hay que arreglarlo antes de seguir.
 
-    Se usa el place_id cuando esta: lleva al negocio exacto en vez de a
-    una busqueda por texto, que con nombres repetidos se equivoca.
-    """
-    pid = negocio.get("place_id")
-    if pid:
-        return ("https://www.google.com/maps/search/?api=1"
-                f"&query=Google&query_place_id={pid}")
+Lo que SÍ tiene que aparecer en `git status`:
 
-    from urllib.parse import quote_plus
-    consulta = ", ".join(x for x in (negocio.get("nombre"),
-                                     negocio.get("direccion")) if x)
-    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(consulta)}"
+```
+A  prospectos_crudo.json
+A  prospectos_calificados.json
+A  app.py, reglas.py, zonas.py, pantallas/...
+```
 
+---
 
-# Codigo de ubicacion de Google ("XJJC+WCJ"). Aparece en la direccion
-# cuando el negocio no tiene una calle registrada, y no le sirve a
-# nadie: no se puede leer ni preguntar por el.
-PLUS_CODE = re.compile(r"\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b",
-                       re.I)
+## Paso 3 — Crear el repo PRIVADO en GitHub
 
-# "Provincia de Alajuela" sobra: la provincia ya se eligio en pantalla.
-RELLENO = re.compile(r"\b(provincia de|province|costa rica)\b[,\s]*", re.I)
+En github.com → New repository.
 
+| campo | qué poner |
+|---|---|
+| nombre | `embutidos-prospector` |
+| visibilidad | **Private** ← lo más importante de esta página |
+| initialize | nada, ni README ni .gitignore |
 
-def direccion_corta(negocio):
-    """La direccion sin lo que no se puede usar para llegar.
+GitHub te muestra los comandos. Son estos:
 
-    Google devuelve cosas como "XJJC+WCJ, 3, Provincia de Alajuela,
-    Atenas". El codigo no sirve, la provincia ya se sabe, y lo que
-    queda es lo unico que alguien podria preguntarle a un vecino.
-    """
-    d = PLUS_CODE.sub("", negocio.get("direccion") or "")
-    d = RELLENO.sub("", d)
-    partes = [p.strip() for p in d.split(",")]
-    partes = [p for p in partes if len(p) > 1]       # fuera los "3" sueltos
-    return ", ".join(dict.fromkeys(partes))          # sin repetidos
+```powershell
+git commit -m "App de prospección: dos canales, listo para hospedar"
+git branch -M main
+git remote add origin https://github.com/TU_USUARIO/embutidos-prospector.git
+git push -u origin main
+```
 
+Cuando termine, **abrí el repo en el navegador y comprobá dos cosas**:
 
-def avisos(negocio):
-    """Lo que conviene pensar ANTES de entrar.
+1. Dice **Private** al lado del nombre
+2. `credenciales.json` NO está en la lista de archivos
 
-    Solo van aqui las cosas que podrian cambiar la decision. El canal
-    de contacto no: eso es un dato y se muestra aparte.
-    """
-    marcas = []
-    if negocio.get("posible_competidor"):
-        marcas.append("El nombre sugiere que hacen embutidos propios")
-    if negocio.get("es_cadena"):
-        marcas.append("Es cadena: la compra suele decidirse en oficinas "
-                      "centrales")
-    return marcas
+---
 
+## Paso 4 — Desplegar en Streamlit Cloud
 
-def canal(negocio):
-    """Como se le puede llegar. Es un dato, no una advertencia."""
-    if es_celular(negocio.get("telefono")):
-        return "Celular: se le puede escribir por WhatsApp"
-    if negocio.get("telefono"):
-        return "Solo teléfono fijo: llamar o visitar"
-    return "Sin teléfono: visitar"
+En share.streamlit.io → Create app → "Deploy a public app from GitHub"
+(aunque el repo sea privado; la primera vez te va a pedir autorizar el
+acceso a tus repos).
 
+| campo | qué poner |
+|---|---|
+| Repository | `TU_USUARIO/embutidos-prospector` |
+| Branch | `main` |
+| **Main file path** | **`app.py`** |
+| App URL | `embutidos-prospector` |
 
-def ruta(datos, provincia=PROVINCIA_POR_DEFECTO, cantones=None, tope=None,
-         por_marca=POR_MARCA):
-    """La lista lista para imprimir o mirar en el telefono.
+> ### Esta casilla no se puede corregir después
+>
+> **El 12/10 se puso `acceso.py` por error.** `acceso.py` es un módulo
+> sin pantalla, así que el menú lateral mostraba una página en blanco
+> llamada "acceso" y la portada no era alcanzable.
+>
+> Streamlit **no permite cambiar el archivo principal de un app ya
+> desplegado**. Hubo que borrar el app (⋮ → Delete) y volver a crearlo
+> reutilizando el mismo subdominio, para que el enlace no cambiara.
+>
+> Si el subdominio sale ocupado justo después de borrar, esperá dos
+> minutos.
+>
+> Lo que **no** hay que hacer es renombrar archivos para acomodarse al
+> despliegue: `app.py` → `Inicio.py` chocaría con `inicio.py` en
+> Windows, que no distingue mayúsculas.
 
-    `por_marca=None` muestra todas las sucursales. El tope se aplica al
-    final, sobre la lista ya filtrada: si no, un tope de 20 se gastaria
-    en sucursales que despues se esconden y devolveria menos de 20.
-    """
-    r = por_puntaje(de_cantones(de_provincia(visitables(datos), provincia),
-                                cantones))
-    r = una_por_marca(r, por_marca)
-    return r[:tope] if tope else r
+No le des a Deploy todavía. Primero entrá a **Advanced settings →
+Secrets**.
 
+---
 
-def resumen(datos, provincia=PROVINCIA_POR_DEFECTO):
-    """Cifras de la provincia, para saber con que se cuenta."""
-    v = de_provincia(visitables(datos), provincia)
-    return {
-        "total": len(de_provincia(datos, provincia)),
-        "visitables": len(v),
-        "con_celular": sum(1 for d in v if es_celular(d.get("telefono"))),
-        "cadenas": sum(1 for d in v if d.get("es_cadena")),
-        "posibles_competidores": sum(1 for d in v
-                                     if d.get("posible_competidor")),
-        "cantones": len(cantones_con_conteo(v)),
-    }
+## Paso 5 — Los secretos
+
+Esta es la parte delicada. En el cuadro de Secrets va esto:
+
+```toml
+clave = "la-que-elijas"
+
+[gcp_service_account]
+type = "service_account"
+project_id = "..."
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+client_email = "...@....iam.gserviceaccount.com"
+client_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "..."
+```
+
+Los valores de `[gcp_service_account]` salen de tu `credenciales.json`,
+campo por campo.
+
+**La trampa del `private_key`:** en el JSON las líneas van separadas por
+`\n` literales. Tienen que quedar igual acá — entre comillas dobles, con
+los `\n` tal cual, en una sola línea. Si Google te rechaza la
+autenticación, ese es el primer sospechoso.
+
+**La clave del app** (`clave = "..."`) es la que les vas a dar a los
+ruteros. Que no sea el nombre de la fábrica ni algo adivinable.
+
+### Lo que NO va en los secretos del app desplegado
+
+```toml
+modo = "desarrollo"      # ← esto NO, nunca, en el app hospedado
+```
+
+`modo = "desarrollo"` es lo único que habilita guardar las respuestas en
+el disco del servidor. **En Streamlit Cloud ese disco se borra cuando el
+servidor reinicia**, así que ponerlo allá es perder las respuestas sin
+enterarse.
+
+Sin esa línea, si la hoja de Google no responde el app queda en **solo
+lectura** con un error rojo en pantalla: se puede seguir viendo la lista
+y los mensajes, pero no se acepta una anotación que no va a sobrevivir.
+La conexión se reintenta sola.
+
+El modo existe para correr el app en tu máquina sin tocar los secretos:
+
+```powershell
+$env:EMBUTIDOS_MODO = "desarrollo"
+python -m streamlit run app.py
+```
+
+Ahora sí, **Deploy**.
+
+---
+
+## Paso 6 — Comprobar que quedó bien
+
+Abrí el enlace que te da Streamlit y revisá, en este orden:
+
+| qué | tiene que pasar |
+|---|---|
+| al abrir | pide la clave |
+| con la clave mal | dice "Clave incorrecta" |
+| con la clave bien | entra a **Rutas**, con el selector de provincia |
+| el menú lateral | dice **Rutas, Mensajes** — nada más |
+| Rutas | muestra negocios con botones amarillos |
+| Mensajes | muestra los que tienen celular |
+| al pie | **NO** aparece el aviso gris sobre el servidor |
+
+Esa última fila es la que importa: si aparece *"Las respuestas se están
+guardando en este servidor y se pierden si reinicia"*, es que no se pudo
+conectar a la hoja de Google. Revisá el `private_key`.
+
+**Y la verificación que de verdad cierra el asunto:** marcá un negocio
+como "enviado" en Mensajes, guardá, y **abrí la hoja de Google**. Tiene
+que aparecer la fila en la pestaña `Respuestas`, con siete columnas:
+
+```
+nombre | canton | estado | enviado | mensaje | notas | place_id
+```
+
+Si faltan columnas al final, ver `ensanchar()` en `almacen_sheets.py`:
+una hoja de Google no se ensancha sola y Google recorta en silencio.
+
+Por último: abrilo desde tu teléfono, con datos móviles, no por wifi. Es
+como lo va a abrir un rutero.
+
+**Borrá las filas de prueba** antes de empezar a medir de verdad. El
+sistema las lee como envíos reales y mueven la tasa de respuesta, que es
+la única cifra del proyecto que no es una hipótesis.
+
+---
+
+## Paso 7 — Que parezca un app
+
+En el teléfono, Chrome o Safari → menú → **Agregar a pantalla de
+inicio**.
+
+Queda con ícono propio y abre a pantalla completa, sin barra de
+direcciones. No hace falta un app nativo para esto.
+
+---
+
+## Después: cómo se actualiza
+
+Cuando busques negocios nuevos o cambies una regla:
+
+```powershell
+python prospecto.py buscar Cartago
+python prospecto.py reetiquetar
+python -m pytest -q
+
+git add .
+git commit -m "Negocios de Cartago"
+git push
+```
+
+Streamlit redespliega solo al detectar el push. Tarda un par de minutos.
+
+**Ojo con `@st.cache_data`:** el app guarda el JSON en memoria. Después
+de un redespliegue toma los datos nuevos, pero si solo cambiaste el
+archivo sin redesplegar, hay que reiniciar el app desde el panel de
+Streamlit.
+
+---
+
+## El respaldo, que conviene no saltarse
+
+Las respuestas viven en la hoja de Google. Eso es mejor que el disco de
+Streamlit, pero sigue siendo **un solo lugar** para el único dato
+irrecuperable del proyecto.
+
+Cada tanto, desde tu máquina:
+
+```powershell
+python -c "import almacen_sheets; almacen_sheets.respaldo()"
+```
+
+Te deja `respuestas_respaldo.json` en la carpeta. Está en `.gitignore`
+a propósito: es una copia, no el original.
+
+### El respaldo automático, que es otra cosa
+
+Desde el 03/11/2026 cada guardado copia lo que la pestaña `Respuestas`
+tenía **antes** a una pestaña `Respuestas_respaldo`, en la misma hoja.
+
+Va en la hoja y no en un archivo porque allá el disco se borra: un
+respaldo que no sobrevive al reinicio no es un respaldo.
+
+Es de un paso atrás, no un historial. Si algo sale mal, se mira esa
+pestaña **antes** de volver a guardar, porque el guardado siguiente la
+sobrescribe. El comando de arriba sigue siendo el que te da una copia
+fuera de Google.
+
+---
+
+## Si algo sale mal
+
+| síntoma | causa más probable |
+|---|---|
+| "ModuleNotFoundError" al desplegar | falta algo en `requirements.txt` |
+| el app pide clave y nunca entra | `clave` mal escrita en Secrets (sensible a mayúsculas) |
+| "El app no tiene clave configurada" | falta `clave` en Secrets, o está mal el TOML |
+| **error rojo "no se puede guardar"** | no conecta a la hoja. El app queda en solo lectura a propósito. Revisá `private_key` y que la hoja esté compartida |
+| aviso de "modo desarrollo" en el app hospedado | sobra `modo = "desarrollo"` en los Secrets. Quitalo: allá el disco se borra |
+| "Spreadsheet not found" | la hoja no está compartida con el `client_email` de la cuenta de servicio |
+| **403 insufficient authentication scopes** | faltan permisos: `gspread.open()` busca **por nombre**, y eso consulta **Drive**, no Sheets. Los dos alcances vienen de `a_sheets.py` |
+| una página en blanco en el menú | el *Main file path* quedó mal. No se arregla: hay que borrar y redesplegar (paso 4) |
+| la hoja se llena pero `leer()` no ve nada | se perdió la columna `place_id` por ancho. Ver `ensanchar()` |
+| se despliega pero sin datos | los JSON no subieron: revisá `.gitignore` |
+
+La última es la más común y la más confusa, porque el app arranca bien y
+simplemente dice que no hay negocios.
+
+---
+
+## Cambiar la clave
+
+Es lo que hay que hacer antes de darle el enlace a nadie, y no requiere
+redesplegar.
+
+share.streamlit.io → ⋮ del app → **Settings → Secrets** → cambiar el
+valor de `clave` → **Save**. El app se reinicia solo en unos segundos.
+
+**Cambiar la clave expulsa a todos** (desde el 03/11/2026). Las
+sesiones que estaban abiertas se caen y tienen que entrar de nuevo con la
+clave nueva. Eso es el punto: antes seguían adentro, así que "cambiale la
+clave porque se fue un rutero" no echaba a nadie — solo le impedía volver
+a entrar la próxima vez.
+
+Avisales antes, porque les va a pedir la clave en medio de la ruta.
+
+Lo mismo sirve para corregir cualquier secreto: `private_key`,
+`client_email`, lo que sea. **Lo único que no se puede cambiar es el
+archivo principal.**

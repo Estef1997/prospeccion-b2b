@@ -125,3 +125,111 @@ def test_estan_las_siete_provincias():
 def test_el_total_son_84_cantones():
     """El numero que aparece en la documentacion."""
     assert sum(len(c) for c in prospecto.CANTONES.values()) == 84
+
+# --- la lista no es un censo -------------------------------------------
+# Origen (03/11/2026), de una revision externa del repo publico: el
+# README presentaba "3.349 candidatos" como una medicion del mercado.
+# No lo es. Cada consulta pide TOPE_POR_CONSULTA y Places no pagina,
+# asi que una consulta que devuelve justo el tope esta recortada; y las
+# consultas fallidas se saltaban con un print, sin dejar rastro.
+#
+# Nada de esto llama a la API: resumen_consultas() recibe la lista.
+
+def consulta(zona="Palmares, Alajuela, Costa Rica", tipo="supermercado",
+             devueltos=5, tope=False, error=None):
+    return {"zona": zona, "tipo": tipo, "devueltos": devueltos,
+            "tope": tope, "error": error}
+
+
+def test_sin_fallos_ni_topes_la_lista_si_es_completa():
+    """El caso que DEBE pasar: no se avisa de lo que no pasa."""
+    r = prospecto.resumen_consultas([consulta(), consulta(devueltos=12)])
+
+    assert r["es_censo"]
+    assert r["fallidas"] == 0
+    assert r["al_tope"] == 0
+    assert r["devueltos"] == 17
+
+
+def test_una_consulta_al_tope_hace_que_no_sea_censo():
+    """Devolver justo el tope quiere decir recortada, no completa."""
+    r = prospecto.resumen_consultas([
+        consulta(devueltos=prospecto.TOPE_POR_CONSULTA, tope=True)])
+
+    assert not r["es_censo"]
+    assert r["al_tope"] == 1
+
+
+def test_una_consulta_fallida_queda_registrada_con_su_zona():
+    """Antes esto era un print y nada mas.
+
+    Sin el registro, un canton entero podia faltar y el total se veia
+    igual de redondo.
+    """
+    r = prospecto.resumen_consultas([
+        consulta(zona="Upala, Alajuela, Costa Rica", tipo="minisuper",
+                 devueltos=None, error="timeout")])
+
+    assert r["fallidas"] == 1
+    assert not r["es_censo"]
+    assert "Upala" in r["detalle_fallidas"][0]
+    assert "minisuper" in r["detalle_fallidas"][0]
+    assert "timeout" in r["detalle_fallidas"][0]
+
+
+def test_una_consulta_fallida_no_suma_al_conteo():
+    """None no puede contar como cero encontrados de verdad."""
+    r = prospecto.resumen_consultas([
+        consulta(devueltos=3), consulta(devueltos=None, error="503")])
+
+    assert r["devueltos"] == 3
+    assert r["consultas"] == 2
+
+
+def test_sin_consultas_no_se_inventa_un_censo():
+    r = prospecto.resumen_consultas([])
+
+    assert r["consultas"] == 0
+    assert r["devueltos"] == 0
+
+
+def test_el_tope_sale_de_buscar_negocios_y_no_de_una_copia():
+    """Una constante copiada se desincroniza. Van cuatro veces aca."""
+    import buscar_negocios
+
+    assert prospecto.TOPE_POR_CONSULTA is buscar_negocios.TOPE_POR_CONSULTA
+
+
+def test_a_la_bitacora_no_va_el_mensaje_crudo_de_google(monkeypatch,
+                                                        tmp_path):
+    """bitacora.jsonl SI se commitea, y el error de Google trae su body.
+
+    buscar_negocios() levanta RuntimeError con respuesta.text adentro.
+    Si eso entrara al resumen, el cuerpo de una respuesta de Google
+    quedaria en un archivo del repo -- y nadie lo revisa porque el
+    archivo se ve lleno de conteos.
+
+    Esta prueba no llama a la API: reemplaza buscar_negocios y recorta
+    CANTONES a un solo canton.
+    """
+    import bitacora
+
+    FUGA = "Carniceria un proveedor regional 24501234"
+
+    def siempre_falla(zona, tipo, **kw):
+        raise RuntimeError(f"Places API devolvio 400: {FUGA}")
+
+    monkeypatch.setattr(prospecto, "buscar_negocios", siempre_falla)
+    monkeypatch.setattr(prospecto, "CANTONES", {"Alajuela": ["Palmares"]})
+    monkeypatch.setattr(prospecto, "TIPOS", ["supermercado"])
+    monkeypatch.setattr(bitacora, "ARCHIVO", str(tmp_path / "bit.jsonl"))
+    monkeypatch.setattr(prospecto, "anotar", bitacora.anotar)
+
+    prospecto.prospectar(provincias=["Alajuela"])
+
+    escrito = (tmp_path / "bit.jsonl").read_text(encoding="utf-8")
+    assert FUGA not in escrito, "el cuerpo de Google quedo en la bitacora"
+    assert "24501234" not in escrito
+    # Lo que SI tiene que quedar: que fallo, donde, y de que clase.
+    assert "RuntimeError" in escrito
+    assert "Palmares" in escrito
